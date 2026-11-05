@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#102c24">
+<title>Football Odds Scanner</title>
+<style>
+:root{color-scheme:dark;--bg:#0b1713;--card:#14251e;--muted:#a8b8af;--green:#69e6a3;--line:#294337}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:#f3f7f4;font:16px system-ui,Arial}
+main{max-width:850px;margin:auto;padding:18px}.top{display:flex;align-items:center;gap:12px;margin:8px 0 20px}
+.logo{width:46px;height:46px;border-radius:14px;background:#1d4937;display:grid;place-items:center;color:var(--green);font-size:24px}
+h1{font-size:20px;margin:0}.sub,.muted{color:var(--muted);font-size:13px}
+.panel,.match{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:15px;margin:12px 0}
+.controls{display:flex;gap:10px;flex-wrap:wrap;align-items:end}
+label{display:block;color:var(--muted);font-size:12px;margin-bottom:5px}
+input,button{font:inherit;border-radius:10px;padding:11px;border:1px solid var(--line);background:#0d1d16;color:white}
+button{background:#1d6845;border:0;font-weight:700;cursor:pointer}button:disabled{opacity:.5}
+input{min-width:155px} .status{margin:12px 0;color:var(--muted);font-size:13px}
+.match h2{font-size:17px;margin:0 0 5px}.book{border-top:1px solid var(--line);padding:10px 0}
+.odds{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin-top:7px}
+.odd{background:#0c1b14;border-radius:9px;padding:9px;text-align:center;font-variant-numeric:tabular-nums}
+.odd b{display:block;color:var(--green);font-size:18px}.best{outline:1px solid var(--green)}
+.tag{display:inline-block;border-radius:20px;padding:4px 8px;font-size:11px;background:#344237;color:#d5e7dc}
+.good{background:#174b32;color:#9af0bb}.warn{background:#4c3b1d;color:#f4d18b}
+a{color:var(--green)}.hidden{display:none}
+@media(max-width:430px){main{padding:12px}.controls>*{flex:1}.odds{gap:5px}.odd{padding:7px 3px}.odd b{font-size:16px}}
+</style>
+</head>
+<body><main>
+<div class="top"><div class="logo">⚽</div><div><h1>FOOTBALL ODDS SCANNER</h1><div class="sub">Сравнение футбольных коэффициентов</div></div></div>
+<section class="panel">
+<div class="controls">
+<div><label for="date">Дата матчей</label><input id="date" type="date"></div>
+<button id="scan">Загрузить коэффициенты</button>
+</div>
+<div class="status" id="status">Нажми кнопку, чтобы получить доступные коэффициенты из API-Football.</div>
+<div class="muted">Сервис показывает только данные, доступные твоему тарифу API. Предматчевые коэффициенты могут отсутствовать для отдельных лиг и матчей.</div>
+</section>
+<div id="summary" class="hidden"></div>
+<div id="results"></div>
+<p class="muted">Информация носит справочный характер. Коэффициенты могут измениться; наличие математического арбитража не гарантирует принятие всех ставок букмекерами.</p>
+</main>
+<script>
+const dateInput=document.getElementById('date');
+dateInput.value=new Date().toLocaleDateString('en-CA');
+const statusEl=document.getElementById('status'),results=document.getElementById('results'),summary=document.getElementById('summary');
+document.getElementById('scan').addEventListener('click',loadOdds);
+function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+async function loadOdds(){
+ const btn=document.getElementById('scan');btn.disabled=true;statusEl.textContent='Загружаю данные…';results.innerHTML='';summary.classList.add('hidden');
+ try{
+  const r=await fetch('/api/odds?date='+encodeURIComponent(dateInput.value));
+  const data=await r.json();if(!r.ok)throw new Error(data.detail||'Ошибка API');
+  statusEl.textContent=`Получено матчей с рынком 1X2: ${data.count}. Дата: ${data.date}.`;
+  if(!data.matches.length){results.innerHTML='<section class="panel">Для этой даты API не вернул доступных коэффициентов 1X2. Проверь тариф, дату и доступность лиг.</section>';return;}
+  const arbCount=data.matches.filter(m=>m.arbitrage).length;
+  summary.classList.remove('hidden');summary.className='panel';
+  summary.innerHTML=`<b>Найдено матчей: ${data.count}</b><div class="muted">Потенциальный арбитраж по лучшим котировкам: ${arbCount}</div>`;
+  results.innerHTML=data.matches.map(renderMatch).join('');
+ }catch(e){statusEl.textContent='Не удалось загрузить данные: '+e.message;results.innerHTML='<section class="panel">Проверь API-ключ, лимит запросов и настройки сервера Render.</section>';}
+ finally{btn.disabled=false;}
+}
+function renderMatch(m){
+ const best=m.best||{};
+ const books=(m.books||[]).map(b=>`<div class="book"><b>${esc(b.name)}</b><div class="odds">${[['П1','home'],['Х','draw'],['П2','away']].map(([label,key])=>`<div class="odd ${best[key]?.bookmaker===b.name&&best[key]?.odd===b.odds[key]?'best':''}">${label}<b>${Number(b.odds[key]).toFixed(2)}</b></div>`).join('')}</div></div>`).join('');
+ const badge=m.arbitrage?'<span class="tag good">Возможный арбитраж</span>':'<span class="tag">Арбитраж не найден</span>';
+ const bestLine=['home','draw','away'].map((k,i)=>best[k]?`${['П1','Х','П2'][i]} ${Number(best[k].odd).toFixed(2)} (${esc(best[k].bookmaker)})`:null).filter(Boolean).join(' · ');
+ return `<section class="match"><h2>${esc(m.home)} — ${esc(m.away)}</h2><div class="muted">${esc(m.date||'')}</div><p>${badge} ${m.arb_percent!==null?`<span class="muted">Расчётная доходность: ${Number(m.arb_percent).toFixed(2)}%</span>`:''}</p><div class="muted">Лучшие котировки: ${bestLine}</div>${books}</section>`;
+}
+</script></body></html>
